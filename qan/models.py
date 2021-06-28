@@ -23,6 +23,8 @@ class Seq2SeqQA(pl.LightningModule):
 
         # save hyperparameters
         self.save_hyperparameters()
+        self.model_cfg = model_cfg
+        self.pretrained_cfg = pretrained_cfg
         
         # ------------
         # Training Building Block
@@ -47,27 +49,42 @@ class Seq2SeqQA(pl.LightningModule):
             print("Train without pretrained embedding")
             
 
+        self._init_model()
+    
+    
+    def _init_model(self):
+        # Var
+        bidirectional = self.model_cfg.encoder.bidirectional
+        encoder_hidden = self.model_cfg.encoder.hidden_dim
+        encoder_num_layers = self.model_cfg.encoder.num_layers
+        dir = 2 if bidirectional else 1
+        
         # ------------
-        # Model
+        # Backbone
         # ------------
-        self.model_cfg = model_cfg
         self.question_encoder = Encoder(num_embeddings=self.vocab_size, 
-                               pretrained=pretrained_cfg, 
+                               pretrained=self.pretrained_cfg, 
                                **self.model_cfg.encoder)
         self.context_encoder = Encoder(num_embeddings=self.vocab_size, 
-                               pretrained=pretrained_cfg, 
+                               pretrained=self.pretrained_cfg, 
                                **self.model_cfg.encoder)
-   
         
-        ### Classifier
-        bidirectional = self.question_encoder.bidirectional
-        dir = 2 if bidirectional else 1
-        classifier_in_features = 2 * (self.question_encoder.hidden_dim * dir * self.question_encoder.num_layers)
-        self.start_classifier = SimpleMLP(in_features=classifier_in_features,
-                                          out_features=self.max_sequence)
-        self.end_classifier = SimpleMLP(in_features=classifier_in_features,
-                                        out_features=self.max_sequence)        
-    
+        self.end2end_encoder = nn.LSTM(input_size=dir*encoder_hidden, 
+                                       hidden_size=encoder_hidden, 
+                                       num_layers=encoder_num_layers, 
+                                       dropout=0.25, 
+                                       batch_first=True, 
+                                       bidirectional=True, 
+                                       )
+        
+        # ------------
+        # Classifier
+        # ------------
+        classifier_in_features = encoder_hidden * dir 
+        self.classifier = SimpleMLP(in_features=classifier_in_features,
+                                          out_features=2)
+        
+        
     def _preprocess_train_batch(self, batch):
         
         batch = edict(batch)
@@ -161,19 +178,24 @@ class Seq2SeqQA(pl.LightningModule):
         decoding_sequence = 2 
         
         # encode context and question
-        _, context_hidden, _ = self.context_encoder(context) # n_layers * n_directions(2 for bidirectional), bs, hid_dim
-        _, question_hidden, _ = self.question_encoder(question) # n_layers * n_directions(2 for bidirectional), bs, hid_dim
+        out_context, hidden_context, cell_context = self.context_encoder(context) # n_layers * n_directions(2 for bidirectional), bs, hid_dim
+        out_question, hidden_question, cell_question = self.question_encoder(question) # n_layers * n_directions(2 for bidirectional), bs, hid_dim
+        end2end_encoding = torch.cat((out_context, out_question), dim=1)
+        
+        outputs, _ = self.end2end_encoder(end2end_encoding)
         
         # concate the context and question hidden states
         # n_layers*n_directions, b_size, h_dim --> b_size, n_layers*n_directions*h_dim
-        context_hidden = question_hidden.permute(1,0,2).flatten(start_dim=1)
-        question_hidden = question_hidden.permute(1,0,2).flatten(start_dim=1)
+        # context_hidden = question_hidden.permute(1,0,2).flatten(start_dim=1)
+        # question_hidden = question_hidden.permute(1,0,2).flatten(start_dim=1)
         
-        hidden_state_cat = torch.cat((context_hidden, question_hidden), dim=1) # b_size, 2*(n_layers*n_directions*h_dim)
-        logits_start = self.start_classifier(hidden_state_cat) # batch_size, max_sequence
-        logits_end = self.end_classifier(hidden_state_cat) # batch_size, max_sequence
+        # hidden_state_cat = torch.cat((context_hidden, question_hidden), dim=1) # b_size, 2*(n_layers*n_directions*h_dim)
+        logits = self.classifier(outputs) # batch_size, max_sequence, num_classes==2
+        start_logits, end_logits = logits.split(1, dim=-1) # batch_size, max_sequence, 1
+        start_logits = start_logits.squeeze(-1).contiguous()  # (bs, max_query_len)
+        end_logits = end_logits.squeeze(-1).contiguous()  # (bs, max_query_len)
         
-        return logits_start, logits_end
+        return start_logits, end_logits
     
     def training_step(self, batch: set, batch_idx):
         """[training step]

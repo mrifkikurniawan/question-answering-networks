@@ -138,16 +138,16 @@ class SQUADDataLoader(pl.LightningDataModule):
         self.train_set = name2dataset[self._dataset_name](train_set=True, **self._dataset_cfg)
     
     def _init_val_set(self):
-        self.val_set = name2dataset[self._dataset_name](train_set=False, **self._dataset_cfg)
+        pass
 
     def train_dataloader(self):
         self.train_loader = DataLoader(self.train_set, **self._trainLoader_cfg)
         return self.train_loader
     
     def val_dataloader(self):
-        self.val_loader = DataLoader(self.val_set, **self._valLoader_cfg)
-        return self.val_loader
+        # self.val_loader = DataLoader(self.val_set, **self._valLoader_cfg)
+        return None
     
     def test_dataloader(self, batch_size):
-        self.test_loader = DataLoader(self.val_set, **self._testLoader_cfg)
-        return self.test_loader   
+        # self.test_loader = DataLoader(self.val_set, **self._testLoader_cfg)
+        return None   
