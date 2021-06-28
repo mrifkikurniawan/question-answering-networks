@@ -8,3 +8,4 @@ pandas
 torchmetrics
 datasets==1.8.0
 transformers==4.7.0
+pytest==6.2.4
