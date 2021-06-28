@@ -6,27 +6,6 @@ import re
 import torchtext
 import torch
 
-def load_pretrained_embedding(pretrained_path: str, vocab: torchtext.vocab.Vocab, num_embedding: int):
-    print("Load pre-trained embedding")
-    embedding_tensor = torch.zeros((len(vocab), num_embedding))
-    word2embedding = dict()
-    
-    with open(pretrained_path, 'rb') as file:
-        for line in file:
-            line = line.decode().split()
-            word = line[0]
-            vect = np.array(line[1:]).astype(np.float)
-            word2embedding[word] = vect
-    
-    for word in vocab.itos:
-        idx = vocab[word]
-        unk_tensor = np.random.normal(scale=0.6, size=(num_embedding,))
-        word_tensor = word2embedding.get(word, unk_tensor)
-        embedding_tensor[idx, :] = torch.tensor(word_tensor)
-    
-    print(f"Sucessfully get pretrained embedding size: {embedding_tensor.shape}")
-    return embedding_tensor
-    
 
 def random_seed(seed: int=0):
     random.seed(seed)
