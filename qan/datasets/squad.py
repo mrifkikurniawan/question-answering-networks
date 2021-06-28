@@ -1,12 +1,10 @@
 from typing import Any, Callable, cast, Dict, List, Optional, Tuple
 from easydict import EasyDict as edict
+from abc import abstractmethod
 
 from torch.utils.data import Dataset, DataLoader
 from datasets import load_dataset
 import pytorch_lightning as pl
-
-from qan.datasets.entities import Question, Answer, Context
-
 
 
 class BaseDataset(Dataset):
@@ -16,22 +14,39 @@ class BaseDataset(Dataset):
     @property
     def features(self):
         pass
-
-    @property
-    def tokenizer(self):
-        pass
     
     @property
     def split(self):
         pass
     
-    def _postprocess(self):
-        pass
+    def _get_end_answer_index(self, answers_src: edict, context: str):
+        answers = edict(answers_src.copy())
+        len_answers = len(answers.text)
+        answers.answer_end = list()
+        
+        for i in range(len_answers):
+            gold_answer = answers.text[i]
+            start_ans_idx = answers.answer_start[i]
+            end_ans_idx = start_ans_idx + len(gold_answer)
+            
+            if context[start_ans_idx:end_ans_idx] == gold_answer:
+                answers.answer_end.append(end_ans_idx)
+            elif context[start_ans_idx-1:end_ans_idx-1] == gold_answer:
+                answers.answer_start[i] = start_ans_idx-1
+                answers.answer_end.append(end_ans_idx-1)
+            elif context[start_ans_idx-2:end_ans_idx-2] == gold_answer:
+                answers.answer_start[i] = start_ans_idx-2
+                answers.answer_end.append(end_ans_idx-2)
+            else:
+                raise Exception("Invalid start:end annotation")
+        
+        return dict(answers=answers)
+            
 
-
-
-class SQUADv1(Dataset):
-    def __init__(self, name: str, tokenizer: callable, train_set: bool=True, **kwargs):
+class SQUADv1(BaseDataset):
+    def __init__(self, 
+                 train_set: bool=True, 
+                 **kwargs):
         super().__init__()
         
         if train_set:
@@ -41,50 +56,34 @@ class SQUADv1(Dataset):
             self._split = "dev/test"
             self._dataset = load_dataset("squad", **kwargs)['validation']
         
-        self._name = name
         self._features = self._dataset.features
         self._num_rows = self._dataset.num_rows
-        self._tokenizer = tokenizer
     
     @property
     def features(self):
         return list(self._features.keys())
-
-    @property
-    def tokenizer(self):
-        return self._tokenizer
     
     @property
     def split(self):
         return self._split
     
-    def _postprocess(self, text):
-        pass
     
     def __len__(self):
         return self._num_rows
     
     def __getitem__(self, idx):
         data = edict(self._dataset[idx])
+        answers_with_end = self._get_end_answer_index(data.answers, data.context)
+        data.update(answers_with_end)
         
-        # create instance
-        question = Question(data.question)
-        answer = Answer(data.answers)
-        context = Context(data.context)
-        
-        # tokenize
-        question.tokenize(self._tokenizer, self._postprocess)
-        answer.tokenize(self._tokenizer, self._postprocess)
-        context.tokenize(self._tokenizer, self._postprocess)
-        
-        new_data = edict(answers=answer, question=question, context=context)
-        
-        return data.update(new_data) 
+        return data 
 
 
 
-class SQUADv2(Dataset):
-    def __init__(self, name: str, tokenizer: callable, train_set: bool=True, **kwargs):
+class SQUADv2(BaseDataset):
+    def __init__(self, 
+                 train_set: bool=True, 
+                 **kwargs):
         super().__init__()
         
         if train_set:
@@ -94,45 +93,26 @@ class SQUADv2(Dataset):
             self._split = "dev/test"
             self._dataset = load_dataset("squad_v2", **kwargs)['validation']
         
-        self._name = name
         self._features = self._dataset.features
         self._num_rows = self._dataset.num_rows
-        self._tokenizer = tokenizer
     
     @property
     def features(self):
         return list(self._features.keys())
-
-    @property
-    def tokenizer(self):
-        return self._tokenizer
     
     @property
     def split(self):
         return self._split
-    
-    def _postprocess(self, text):
-        pass
     
     def __len__(self):
         return self._num_rows
     
     def __getitem__(self, idx):
         data = edict(self._dataset[idx])
+        answers_with_end = self._get_end_answer_index(data.answers, data.context)
+        data.update(answers_with_end)
         
-        # create instance
-        question = Question(data.question)
-        answer = Answer(data.answers)
-        context = Context(data.context)
-        
-        # tokenize
-        question.tokenize(self._tokenizer, self._postprocess)
-        answer.tokenize(self._tokenizer, self._postprocess)
-        context.tokenize(self._tokenizer, self._postprocess)
-        
-        new_data = edict(answers=answer, question=question, context=context)
-        
-        return data.update(new_data) 
+        return data
 
 
 
@@ -151,11 +131,9 @@ class SQUADDataLoader(pl.LightningDataModule):
         
         # init train/val/test set
         self._init_train_set()
-        self._init_val_set()
+        self._init_val_set()     
     
-    def prepare_data(self):
-        pass
-    
+
     def _init_train_set(self):
         self.train_set = name2dataset[self._dataset_name](train_set=True, **self._dataset_cfg)
     
@@ -172,4 +150,4 @@ class SQUADDataLoader(pl.LightningDataModule):
     
     def test_dataloader(self, batch_size):
         self.test_loader = DataLoader(self.val_set, **self._testLoader_cfg)
-        return self.test_loader
+        return self.test_loader   
