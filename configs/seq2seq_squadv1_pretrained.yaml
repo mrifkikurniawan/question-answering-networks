@@ -1,0 +1,79 @@
+# ---------------
+# Trainer hparams
+# --------------- 
+seed: 0
+trainer:
+  max_epochs: 1
+  gpus: 1
+  auto_select_gpus: True
+  # fast_dev_run: True
+# ---------------
+# Model
+# --------------- 
+model:
+  module: qan.models
+  method: Seq2SeqQA 
+  args:
+  # ---------------
+  # pre-trained
+  # ---------------      
+    pretrained_cfg:
+      freeze: False
+      module: torchtext.vocab
+      method: GloVe
+      args:
+        name: 6B
+        dim: 300
+  # ---------------
+  # Backbone
+  # --------------- 
+    model_cfg:
+      encoder: 
+        num_layers: 3
+        embedding_dim: 300
+        hidden_dim: 512
+        dropout: 0.5
+        bidirectional: True
+        embedding_kwargs: {}
+        rnn_kwargs: {}
+    optimizer_cfg:
+      module: Adam
+      args:
+        lr: 0.001
+        weight_decay: 0
+    tokenizer_cfg: 
+      module: transformers
+      method: BertTokenizerFast
+      args:
+        pretrained_model_name_or_path: bert-base-uncased
+
+
+
+# ---------------------------
+# Datasets and Dataloader
+# ---------------------------
+dataloader:
+  module: qan.datasets.squad
+  method: SQUADDataLoader
+  args:
+    dataset: squad
+    trainLoader_cfg:
+      batch_size: 20 
+      shuffle: True
+      num_workers: 4
+    valLoader_cfg:
+      batch_size: 1 
+      shuffle: False
+      num_workers: 4
+
+# ---------------
+# Logger
+# --------------- 
+logger:
+  module: pytorch_lightning.loggers
+  method: TensorBoardLogger
+  args:
+    save_dir: logs/
+    name: seq2seq_encode_context_question
+    log_graph: True
+
