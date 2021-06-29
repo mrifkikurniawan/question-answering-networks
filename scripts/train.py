@@ -33,13 +33,13 @@ def cli_main():
     model = create_instance(config.model)
     
     # use pretrained weight 
-    if config.pretrained:
+    if args.pretrained:
         model = model.load_from_checkpoint(config.pretrained)
 
     logger = create_instance(config.logger)
     
     # resume training
-    if config.resume:
+    if args.resume:
         trainer = pl.Trainer(resume_from_checkpoint=config.resume, 
                              **config.trainer)
     else:
