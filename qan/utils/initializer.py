@@ -43,7 +43,7 @@ def create_instance(module_cfg: edict, **kwargs):
         
     return instance
 
-def initialize_tokenizer(module_cfg: edict, **kwargs):
+def initialize_pretrained(module_cfg: edict, **kwargs):
     module = module_cfg.module
     method = module_cfg.method
     module_args = module_cfg.args
@@ -52,4 +52,3 @@ def initialize_tokenizer(module_cfg: edict, **kwargs):
     module = import_module(module)
     method_obj = getattr(module, method)
     return method_obj.from_pretrained(**module_args)
-    
