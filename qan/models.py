@@ -2,7 +2,7 @@ from easydict import EasyDict as edict
 from typing import List
 
 from qan.modules import Encoder, Decoder
-from qan.utils.initializer import initialize_optimizer, create_instance, initialize_tokenizer
+from qan.utils.initializer import initialize_optimizer, create_instance, initialize_pretrained
 from qan.modules import SimpleMLP 
 
 import pytorch_lightning as pl
@@ -11,6 +11,7 @@ import torch
 from torch import nn
 from torch.nn.init import xavier_uniform
 from transformers.tokenization_utils_base import BatchEncoding
+import transformers
 
     
 # -----------------------------------
@@ -33,7 +34,7 @@ class Seq2SeqQA(pl.LightningModule):
         # ------------
         # Training Building Block
         # ------------    
-        self.tokenizer = initialize_tokenizer(tokenizer_cfg)
+        self.tokenizer = initialize_pretrained(tokenizer_cfg)
         self.vocab = edict(self.tokenizer.get_vocab())
         self.vocab_size = self.tokenizer.vocab_size 
         self.max_sequence = self.tokenizer.model_max_length
@@ -270,11 +271,11 @@ class TransformersQA(pl.LightningModule):
         # ------------
         # Training Building Block
         # ------------    
-        self.tokenizer = initialize_tokenizer(tokenizer_cfg)
+        self.tokenizer = initialize_pretrained(tokenizer_cfg)
         self.vocab = edict(self.tokenizer.get_vocab())
         self.vocab_size = self.tokenizer.vocab_size 
         self.max_sequence = self.tokenizer.model_max_length
-        self.optimizer = initialize_optimizer(torch.optim, optimizer_cfg.module)
+        self.optimizer = initialize_optimizer(transformers, optimizer_cfg.module)
         self.criterion = nn.CrossEntropyLoss(ignore_index=self.max_sequence)
         
         # init model
@@ -286,7 +287,7 @@ class TransformersQA(pl.LightningModule):
         # ------------
         encoder_config = self.model_cfg.encoder.config
         self.tranformer_config = create_instance(encoder_config)
-        self.encoder = create_instance(config=self.tranformer_config)
+        self.encoder = initialize_pretrained(self.model_cfg.encoder)
         
         # ------------
         # Classifier
@@ -377,7 +378,7 @@ class TransformersQA(pl.LightningModule):
         # encode context and question
         outputs = self.encoder(input_ids = input_ids,
                                attention_mask = attention_mask) 
-        last_hidden_state = outputs[0] 
+        last_hidden_state = outputs[0] # batch_size, max_sequence, hidden_dim
         
         logits = self.classifier(last_hidden_state) # batch_size, max_sequence, num_classes==2
         start_logits, end_logits = logits.split(1, dim=-1) # batch_size, max_sequence, 1
