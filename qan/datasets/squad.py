@@ -73,9 +73,11 @@ class SQUADv1(BaseDataset):
     
     def __getitem__(self, idx):
         data = edict(self._dataset[idx])
-        answers_with_end = self._get_end_answer_index(data.answers, data.context)
-        data.update(answers_with_end)
-        
+        if self._split == "train":
+            answers_with_end = self._get_end_answer_index(data.answers, data.context)
+            data.update(answers_with_end)
+        else:
+            data.pop('answers', None)
         return data 
 
 
@@ -109,9 +111,11 @@ class SQUADv2(BaseDataset):
     
     def __getitem__(self, idx):
         data = edict(self._dataset[idx])
-        answers_with_end = self._get_end_answer_index(data.answers, data.context)
-        data.update(answers_with_end)
-        
+        if self._split == "train":
+            answers_with_end = self._get_end_answer_index(data.answers, data.context)
+            data.update(answers_with_end)
+        else:
+            data.pop('answers', None)
         return data
 
 
