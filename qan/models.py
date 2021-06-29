@@ -56,26 +56,14 @@ class Seq2SeqQA(pl.LightningModule):
         # Var
         bidirectional = self.model_cfg.encoder.bidirectional
         encoder_hidden = self.model_cfg.encoder.hidden_dim
-        encoder_num_layers = self.model_cfg.encoder.num_layers
         dir = 2 if bidirectional else 1
         
         # ------------
         # Backbone
         # ------------
-        self.question_encoder = Encoder(num_embeddings=self.vocab_size, 
+        self.encoder = Encoder(num_embeddings=self.vocab_size, 
                                pretrained=self.pretrained_cfg, 
                                **self.model_cfg.encoder)
-        self.context_encoder = Encoder(num_embeddings=self.vocab_size, 
-                               pretrained=self.pretrained_cfg, 
-                               **self.model_cfg.encoder)
-        
-        self.end2end_encoder = nn.LSTM(input_size=dir*encoder_hidden, 
-                                       hidden_size=encoder_hidden, 
-                                       num_layers=encoder_num_layers, 
-                                       dropout=0.25, 
-                                       batch_first=True, 
-                                       bidirectional=True, 
-                                       )
         
         # ------------
         # Classifier
@@ -89,18 +77,16 @@ class Seq2SeqQA(pl.LightningModule):
         
         batch = edict(batch)
         answers = batch.answers
-        questions_train_encodings = self.tokenizer(batch.question, 
-                                                   truncation=True, 
-                                                   padding=True)
-        contexts_train_encodings = self.tokenizer(batch.context, 
-                                                  truncation=True, 
-                                                  padding=True)
+        encodings = self.tokenizer(batch.context, 
+                                   batch.question,
+                                   truncation=True,
+                                   padding=True)
         
         # get answers start/end positions in encoding
-        answers_start_positions, answers_end_positions = self._get_answers_token_positions(context_encodings=contexts_train_encodings, 
+        answers_start_positions, answers_end_positions = self._get_answers_token_positions(context_encodings=encodings, 
                                                                                            answers=answers)
                  
-        return questions_train_encodings, contexts_train_encodings, answers_start_positions, answers_end_positions    
+        return encodings, answers_start_positions, answers_end_positions    
 
 
     def _preprocess_val_batch(self, batch):
@@ -108,31 +94,23 @@ class Seq2SeqQA(pl.LightningModule):
     
     def _preprocess_inference(self, batch):
         batch = edict(batch)
-        questions_encodings = self.tokenizer(batch.question, 
-                                             truncation=True, 
-                                             padding=True)
-        contexts_encodings = self.tokenizer(batch.context, 
-                                            truncation=True, 
-                                            padding=True)
-
-        questions_ids, _ = questions_encodings['input_ids'], questions_encodings['attention_mask']
-        contexts_ids, _ = contexts_encodings['input_ids'], contexts_encodings['attention_mask']
+        encodings = self.tokenizer(batch.context, 
+                                   batch.question,
+                                   truncation=True,
+                                   padding=True)
+        encodings_ids = torch.tensor(encodings['input_ids'], dtype=torch.int32, device=self.device)
         
-        questions_ids = torch.tensor(questions_ids, dtype=torch.int32, device=self.device) # (batch_size, max_sequence_per_batch)
-        contexts_ids = torch.tensor(contexts_ids, dtype=torch.int32, device=self.device) # (batch_size, max_sequence_per_batch)
-        
-        return questions_ids, contexts_ids
+        return encodings_ids
     
     @torch.no_grad()
     def predict(self, x):
-        questions_ids, contexts_ids = self._preprocess_inference(x)
-        out = self(context=contexts_ids,
-                   question=questions_ids)
+        encodings_ids = self._preprocess_inference(x)
+        out = self(inputs=encodings_ids)
         
         logits_start, logits_end = out
         predictions_start, predictions_end = F.softmax(logits_start, dim=1), F.softmax(logits_end, dim=1) # (batch_size, num_classes/max_sequence) 
         
-        return self.postprocess((predictions_start, predictions_end), contexts_ids=contexts_ids)
+        return self.postprocess((predictions_start, predictions_end), contexts_ids=encodings_ids)
     
     def postprocess(self, 
                     x: set, 
@@ -156,8 +134,9 @@ class Seq2SeqQA(pl.LightningModule):
         return outputs
     
     def forward(self, 
-                context: torch.Tensor, 
-                question: torch.Tensor, 
+                inputs: torch.Tensor,
+                # context: torch.Tensor, 
+                # question: torch.Tensor, 
                 teacher_forcing_ratio: float = 0.5):
         """[pass forward method of the model]
 
@@ -171,26 +150,21 @@ class Seq2SeqQA(pl.LightningModule):
             [type]: [description]
         """
         
-        assert len(context.size()) == 2
-        assert len(question.size()) == 2
+        # assert len(context.size()) == 2
+        # assert len(question.size()) == 2
         
         # set to 2 due to predict the start,end over possibles location in the context
-        decoding_sequence = 2 
         
         # encode context and question
-        out_context, hidden_context, cell_context = self.context_encoder(context) # n_layers * n_directions(2 for bidirectional), bs, hid_dim
-        out_question, hidden_question, cell_question = self.question_encoder(question) # n_layers * n_directions(2 for bidirectional), bs, hid_dim
-        end2end_encoding = torch.cat((out_context, out_question), dim=1)
-        
-        outputs, _ = self.end2end_encoder(end2end_encoding)
-        
+        out_context, _, _ = self.encoder(inputs) # n_layers * n_directions(2 for bidirectional), bs, hid_dim
+                
         # concate the context and question hidden states
         # n_layers*n_directions, b_size, h_dim --> b_size, n_layers*n_directions*h_dim
         # context_hidden = question_hidden.permute(1,0,2).flatten(start_dim=1)
         # question_hidden = question_hidden.permute(1,0,2).flatten(start_dim=1)
         
         # hidden_state_cat = torch.cat((context_hidden, question_hidden), dim=1) # b_size, 2*(n_layers*n_directions*h_dim)
-        logits = self.classifier(outputs) # batch_size, max_sequence, num_classes==2
+        logits = self.classifier(out_context) # batch_size, max_sequence, num_classes==2
         start_logits, end_logits = logits.split(1, dim=-1) # batch_size, max_sequence, 1
         start_logits = start_logits.squeeze(-1).contiguous()  # (bs, max_query_len)
         end_logits = end_logits.squeeze(-1).contiguous()  # (bs, max_query_len)
@@ -207,13 +181,13 @@ class Seq2SeqQA(pl.LightningModule):
         Returns:
             loss[float]: [loss value]
         """        
-        questions_encodings, contexts_encodings, answers_start_positions, answers_end_positions  = self._preprocess_train_batch(batch)
-        questions_ids, _ = questions_encodings['input_ids'], questions_encodings['attention_mask']
-        contexts_ids, _ = contexts_encodings['input_ids'], contexts_encodings['attention_mask']
+        encodings, answers_start_positions, answers_end_positions  = self._preprocess_train_batch(batch)
+        # questions_ids, _ = questions_encodings['input_ids'], questions_encodings['attention_mask']
+        # contexts_ids, _ = contexts_encodings['input_ids'], contexts_encodings['attention_mask']
+        encodings_ids = encodings['input_ids']
         
         # pass forward the model
-        start_logits, end_logits = self(context=torch.tensor(questions_ids, dtype=torch.int32, device=self.device), 
-                                        question=torch.tensor(contexts_ids, dtype=torch.int32, device=self.device))
+        start_logits, end_logits = self(torch.tensor(encodings_ids, dtype=torch.int32, device=self.device))
         
         # calculate loss value
         start_logits = start_logits.squeeze(-1).contiguous()  # (batch_size, class)
