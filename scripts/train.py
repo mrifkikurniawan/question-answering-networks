@@ -17,6 +17,8 @@ def cli_main():
     # ------------
     parser = ArgumentParser()
     parser.add_argument('-c', '--config', default='', type=str, help='path to trainer config')
+    parser.add_argument('-p', '--pretrained', default=None, type=str, help='path to pretrained model')
+    parser.add_argument('-r', '--resume', default=None, type=str, help='path to checkpoint .ckpt for resume training')
     args = parser.parse_args()
 
     # trainer
@@ -26,39 +28,27 @@ def cli_main():
     # seed everything
     pl.seed_everything(config.seed)
   
+    # init model and dataloader
     dataloader = create_instance(config.dataloader)
-    val_dataloader =  dataloader.val_dataloader()
     model = create_instance(config.model)
+    
+    # use pretrained weight 
+    if config.pretrained:
+        model = model.load_from_checkpoint(config.pretrained)
+
     logger = create_instance(config.logger)
-    trainer = pl.Trainer(logger=logger, 
-                         **config.trainer)
+    
+    # resume training
+    if config.resume:
+        trainer = pl.Trainer(resume_from_checkpoint=config.resume, 
+                             **config.trainer)
+    else:
+        trainer = pl.Trainer(logger=logger, 
+                            **config.trainer)
     start = time.time()
     trainer.fit(model, dataloader)
     end = time.time()
     print(f"Training time: {end-start} s")
-    
-    print("Predict on dev dataset")
-    all_answers = list()
-    ids = list()
-    for batch in tqdm(val_dataloader, "Predictions"):
-        batch = edict(batch)
-        id = batch.id
-        ans_list = model.predict(batch)
-        all_answers.extend(ans_list)
-        ids.extend(id)
-        
-    # create answer dict
-    answers_log = edict()
-    for i in range(len(all_answers)):
-        answers_log[ids[i]] = all_answers[i]
-    
-    # save to json file
-    if not osp.isdir(logger.log_dir):
-        os.makedirs(logger.log_dir)
-    json_path = osp.join(logger.log_dir, "predictions_dev.json")
-    with open(osp.join(json_path), 'w') as file:
-        json.dump(answers_log, file)
-        print(f"Save predictions_dev.json to {json_path}")
     
 if __name__ == '__main__':
     cli_main()
