@@ -133,3 +133,6 @@ dataset/
 notebooks/
 .vscode/
 ..gitignore.swp
+.vector_cache
+logs/
+.gitignore.save
