@@ -34,13 +34,14 @@ def cli_main():
     
     # use pretrained weight 
     if args.pretrained:
-        model = model.load_from_checkpoint(config.pretrained)
+        model = model.load_from_checkpoint(args.pretrained)
 
     logger = create_instance(config.logger)
     
     # resume training
     if args.resume:
-        trainer = pl.Trainer(resume_from_checkpoint=config.resume, 
+        trainer = pl.Trainer(resume_from_checkpoint=args.resume, 
+                             logger=logger,
                              **config.trainer)
     else:
         trainer = pl.Trainer(logger=logger, 
