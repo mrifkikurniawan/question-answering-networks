@@ -321,7 +321,7 @@ class TransformersQA(pl.LightningModule):
         encodings_ids = torch.tensor(encodings['input_ids'], dtype=torch.int32, device=self.device)
         attention_mask = torch.tensor(encodings['attention_mask'], dtype=torch.int32, device=self.device)
         
-        return (encodings_ids, attention_mask), batch.context, encodings
+        return encodings_ids, attention_mask, batch.context, encodings
     
     @torch.no_grad()
     def predict(self, x):
