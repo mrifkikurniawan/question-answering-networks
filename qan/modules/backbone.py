@@ -8,11 +8,12 @@ class Encoder(nn.Module):
     def __init__(self, 
                  num_embeddings: int, 
                  num_layers: int,
-                 pretrained: edict=False,
+                 pretrained: edict=None,
                  embedding_dim: int=300, 
                  hidden_dim: int=512,  
                  dropout:float=0.5,
-                 bidirectional: bool=True, 
+                 bidirectional: bool=True,
+                 pretrained_embedding: torch.Tensor=None,
                  embedding_kwargs: dict={},
                  rnn_kwargs: dict={}
                  ): 
@@ -38,7 +39,7 @@ class Encoder(nn.Module):
         if pretrained:
             self.embedding = nn.Embedding(num_embeddings=num_embeddings,
                                         embedding_dim=embedding_dim,
-                                        **embedding_kwargs).from_pretrained(pretrained.tensor, freeze=pretrained.freeze)
+                                        **embedding_kwargs).from_pretrained(pretrained_embedding, freeze=pretrained.freeze)
         else:
             self.embedding = nn.Embedding(num_embeddings=num_embeddings,
                                         embedding_dim=embedding_dim,
