@@ -19,12 +19,13 @@ def cli_main():
     parser.add_argument('-c', '--config', default='', type=str, help='path to trainer config')
     parser.add_argument('-ckpt', '--checkpoint', default='', type=str, help='path to weight checkpoint')
     parser.add_argument('-o', '--output', default='', type=str, help='path to json output file')
+    parser.add_argument('-t', '--threshold', default=None, type=float, help='inference threshold for answerable/not answerable')
     args = parser.parse_args()
 
     checkpoint = args.checkpoint
     output_path = args.output
     config_path = args.config
-
+    threshold = args.threshold
     
     # trainer
     config = edict(yaml.safe_load(open(config_path, 'r')))
@@ -49,7 +50,7 @@ def cli_main():
     for batch in tqdm(val_dataloader, "Predictions"):
         batch = edict(batch)
         id = batch.id
-        ans_list = model.predict(batch)
+        ans_list = model.predict(batch, threshold=threshold)
         all_answers.extend(ans_list)
         ids.extend(id)
         # i +=1
