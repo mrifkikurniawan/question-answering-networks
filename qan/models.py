@@ -107,19 +107,20 @@ class Seq2SeqQA(pl.LightningModule):
         return encodings_ids, batch.context, encodings
     
     @torch.no_grad()
-    def predict(self, x):
+    def predict(self, x, threshold=None):
         encodings_ids, gold_context, encodings = self._preprocess_inference(x)
         out = self(inputs=encodings_ids)
         
         logits_start, logits_end = out
         predictions_start, predictions_end = F.softmax(logits_start, dim=1), F.softmax(logits_end, dim=1) # (batch_size, num_classes/max_sequence) 
         
-        return self.postprocess((predictions_start, predictions_end), gold_context=gold_context, encodings=encodings)
+        return self.postprocess((predictions_start, predictions_end), gold_context=gold_context, encodings=encodings, threshold=threshold)
     
     def postprocess(self, 
                     start_end_pair: set, 
                     gold_context: list,
-                    encodings: BatchEncoding) -> List:
+                    encodings: BatchEncoding,
+                    threshold) -> List:
         # get confidence and labels
         predictions_start, predictions_end = start_end_pair
         confs_start, preds_start = torch.max(predictions_start, dim=1)
@@ -134,10 +135,18 @@ class Seq2SeqQA(pl.LightningModule):
             start = preds_start[i]
             end = preds_end[i]  
             
-            start_str_span = encodings.token_to_chars(i, start) # CharSpan
-            end_str_span = encodings.token_to_chars(i, end)     # CharSpan
+            answerable = True
+            if threshold:
+                conf = (confs_start[i] + confs_end[i])/2
+                if conf <= threshold:
+                    ans = ""
+                    answerable=False
             
-            ans = gold_context[i][start_str_span.start:end_str_span.end]
+            if answerable:
+                start_str_span = encodings.token_to_chars(i, start) # CharSpan
+                end_str_span = encodings.token_to_chars(i, end)     # CharSpan
+                    
+                ans = gold_context[i][start_str_span.start:end_str_span.end]
             outputs.append(ans)
 
         return outputs
