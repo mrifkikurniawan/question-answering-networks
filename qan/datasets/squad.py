@@ -24,6 +24,12 @@ class BaseDataset(Dataset):
         len_answers = len(answers.text)
         answers.answer_end = list()
         
+        # if not answerable
+        if answers.text == []:
+            answers.text = ['']
+            answers.answer_end.append(512)        # max sequence
+            answers.answer_start.append(512)      # max sequence
+        
         for i in range(len_answers):
             gold_answer = answers.text[i]
             start_ans_idx = answers.answer_start[i]
