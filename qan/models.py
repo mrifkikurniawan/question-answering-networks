@@ -25,11 +25,12 @@ class Seq2SeqQA(pl.LightningModule):
                  pretrained_cfg: edict=None
                 ):
         super().__init__()
-
         # save hyperparameters
         self.save_hyperparameters()
         self.model_cfg = model_cfg
         self.pretrained_cfg = pretrained_cfg
+        
+
         
         # ------------
         # Training Building Block
@@ -49,7 +50,7 @@ class Seq2SeqQA(pl.LightningModule):
             pretrained_embedding = self._load_pretrained_embedding(pretrained_cfg=pretrained_cfg, 
                                                                    embedding_dim=model_cfg.encoder.embedding_dim,
                                                                    vocab=self.vocab)
-            pretrained_cfg.tensor = pretrained_embedding
+            self.pretrained_embedding = pretrained_embedding
         else:
             print("Train without pretrained embedding")
             
@@ -68,6 +69,7 @@ class Seq2SeqQA(pl.LightningModule):
         # ------------
         self.encoder = Encoder(num_embeddings=self.vocab_size, 
                                pretrained=self.pretrained_cfg, 
+                               pretrained_embedding=self.pretrained_embedding,
                                **self.model_cfg.encoder)
         
         # ------------
@@ -324,7 +326,7 @@ class TransformersQA(pl.LightningModule):
         return encodings_ids, attention_mask, batch.context, encodings
     
     @torch.no_grad()
-    def predict(self, x):
+    def predict(self, x, threshold: float=None):
         encodings_ids, attention_mask, gold_context, encodings = self._preprocess_inference(x)
         
         # pass forward the model
@@ -334,12 +336,13 @@ class TransformersQA(pl.LightningModule):
         logits_start, logits_end = out
         predictions_start, predictions_end = F.softmax(logits_start, dim=1), F.softmax(logits_end, dim=1) # (batch_size, num_classes/max_sequence) 
         
-        return self.postprocess((predictions_start, predictions_end), gold_context=gold_context, encodings=encodings)
+        return self.postprocess((predictions_start, predictions_end), gold_context=gold_context, encodings=encodings, threshold=threshold)
     
     def postprocess(self, 
                     start_end_pair: set, 
                     gold_context: list,
-                    encodings: BatchEncoding) -> List:
+                    encodings: BatchEncoding,
+                    threshold: float) -> List:
         # get confidence and labels
         predictions_start, predictions_end = start_end_pair
         confs_start, preds_start = torch.max(predictions_start, dim=1)
@@ -354,10 +357,18 @@ class TransformersQA(pl.LightningModule):
             start = preds_start[i]
             end = preds_end[i]  
             
-            start_str_span = encodings.token_to_chars(i, start) # CharSpan
-            end_str_span = encodings.token_to_chars(i, end)     # CharSpan
+            answerable = True
+            if threshold:
+                conf = (confs_start[i] + confs_end[i])/2
+                if conf <= threshold:
+                    ans = ""
+                    answerable=False
             
-            ans = gold_context[i][start_str_span.start:end_str_span.end]
+            if answerable:
+                start_str_span = encodings.token_to_chars(i, start) # CharSpan
+                end_str_span = encodings.token_to_chars(i, end)     # CharSpan
+                    
+                ans = gold_context[i][start_str_span.start:end_str_span.end]
             outputs.append(ans)
 
         return outputs
